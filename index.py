@@ -84,7 +84,7 @@ for ano in options_ano:
                             # Converte os dados da tabela em um DataFrame do Pandas
                             df = pd.DataFrame(dados_tabela[1:], columns=dados_tabela[0])
                             df = df.assign(Municipio=option_text_municipio)
-                            
+                            df["ano"] = ano
                             # Salva o DataFrame em um arquivo CSV
                             df.to_csv(f"{ano}_{option_text_municipio}.csv", index=False)
                         else:
