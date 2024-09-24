@@ -8,126 +8,159 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import os
 
-start_time = time.time()
+def deletar_todos_csv(diretorio):
+    """Deleta todos os arquivos CSV do diretório."""
+    for arquivo in os.listdir(diretorio):
+        if arquivo.endswith('.csv'):
+            os.remove(os.path.join(diretorio, arquivo))
 
-# Diretório com os arquivos CSV
-diretorio = './'
-# Apagar todos os arquivos CSV da pasta
-print('apagando')
-for arquivo in os.listdir(diretorio):
-    if arquivo.endswith('.csv'):
-        os.remove(os.path.join(diretorio, arquivo))
+def selecionar_ano(ano):
+    """Seleciona o ano no dropdown."""
+    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#ConteudoPagina_ddlAno")))
+    elemento_seletor_ano = Select(driver.find_element(By.CSS_SELECTOR, "#ConteudoPagina_ddlAno"))
+    elemento_seletor_ano.select_by_visible_text(ano)
 
-# Inicializa o driver do Chrome
-driver = webdriver.Chrome()
+def obter_municipios():
+    """Obtém a lista de municípios disponíveis no dropdown."""
+    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#ConteudoPagina_ddlMuni")))
+    elemento_seletor_municipio = Select(driver.find_element(By.CSS_SELECTOR, "#ConteudoPagina_ddlMuni"))
+    return [option.text for option in elemento_seletor_municipio.options]
 
-# URL da página que será acessada
-url = "https://www.fazenda.sp.gov.br/RepasseConsulta/Consulta/repasse.aspx"
-driver.get(url)
+def selecionar_municipio(municipio):
+    """Seleciona um município no dropdown."""
+    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#ConteudoPagina_ddlMuni")))
+    elemento_seletor_municipio = Select(driver.find_element(By.CSS_SELECTOR, "#ConteudoPagina_ddlMuni"))
+    elemento_seletor_municipio.select_by_visible_text(municipio)
 
-# Espera até que o seletor de ano esteja disponível
-wait = WebDriverWait(driver, 10)
-wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#ConteudoPagina_ddlAno")))
+def clicar_botao_confirmar():
+    """Clica no botão confirmar."""
+    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#ConteudoPagina_btnConfirmar")))
+    botao = driver.find_element(By.CSS_SELECTOR, "#ConteudoPagina_btnConfirmar")
+    botao.click()
 
-# Seleciona o dropdown de ano
-select_element_ano = Select(driver.find_element(By.CSS_SELECTOR, "#ConteudoPagina_ddlAno"))
+def esperar_tabela():
+    """Espera até que a tabela esteja disponível na página."""
+    try:
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#ConteudoPagina_gdvRepasse")))
+        return True
+    except TimeoutException:
+        return False
 
-# Pega todas as opções de ano disponíveis
-options_ano = [option.text for option in select_element_ano.options]
-
-# Itera sobre os anos, ignorando o '---'
-for ano in options_ano:
-    if ano != '---':
-        print(f"Baixando dados para o ano {ano}")
+def extrair_dados_tabela():
+    """Extrai os dados da tabela e retorna um DataFrame."""
+    html = driver.page_source
+    sopa = BeautifulSoup(html, 'html.parser')
+    tabela = sopa.find('table', {'id': 'ConteudoPagina_gdvRepasse'})
+    
+    if tabela:
+        dados_tabela = []
+        linhas = tabela.find_all('tr')
+        for linha in linhas:
+            colunas = linha.find_all(['th', 'td'])
+            colunas_texto = [coluna.get_text(strip=True) for coluna in colunas]
+            dados_tabela.append(colunas_texto)
         
-        # Reencontra o seletor de ano e seleciona o ano atual
-        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#ConteudoPagina_ddlAno")))
-        select_element_ano = Select(driver.find_element(By.CSS_SELECTOR, "#ConteudoPagina_ddlAno"))
-        select_element_ano.select_by_visible_text(ano)
-        
-        # Reencontra o seletor de município e obtém as opções
-        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#ConteudoPagina_ddlMuni")))
-        select_element_municipio = Select(driver.find_element(By.CSS_SELECTOR, "#ConteudoPagina_ddlMuni"))
-        options_municipio = [option.text for option in select_element_municipio.options]
-        
-        # Itera sobre os municípios, ignorando o '---'
-        for option_text_municipio in options_municipio:
-            if option_text_municipio != '---':
-                try:
-                    # Reencontra o seletor de município e seleciona o município atual
-                    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#ConteudoPagina_ddlMuni")))
-                    select_element_municipio = Select(driver.find_element(By.CSS_SELECTOR, "#ConteudoPagina_ddlMuni"))
-                    select_element_municipio.select_by_visible_text(option_text_municipio)
-                    
-                    # Encontra e clica no botão de confirmar
-                    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#ConteudoPagina_btnConfirmar")))
-                    button = driver.find_element(By.CSS_SELECTOR, "#ConteudoPagina_btnConfirmar")
-                    button.click()
-                    
-                    # Espera até que a tabela esteja presente na página
+        df = pd.DataFrame(dados_tabela[1:], columns=dados_tabela[0])
+        return df
+    else:
+        return None
+
+def salvar_para_csv(df, ano, municipio):
+    """Salva o DataFrame em um arquivo CSV."""
+    df = df.assign(Municipio=municipio)
+    df["Ano"] = ano
+    df.to_csv(f"{ano}_{municipio}.csv", index=False)
+
+def ler_dados():
+    """Função principal que controla o processo de leitura dos dados."""
+    for ano in opcoes_ano:
+        if ano != '---':
+            print(f"Baixando dados para o ano {ano}")
+            
+            # Seleciona o ano
+            selecionar_ano(ano)
+            
+            # Obtém a lista de municípios
+            opcoes_municipio = obter_municipios()
+            
+            # Itera sobre os municípios
+            for opcao_municipio in opcoes_municipio:
+                if opcao_municipio != '---':
                     try:
-                        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#ConteudoPagina_gdvRepasse")))
-                        html = driver.page_source
-                        soup = BeautifulSoup(html, 'html.parser')
+                        # Seleciona o município e clica no botão confirmar
+                        selecionar_municipio(opcao_municipio)
+                        clicar_botao_confirmar()
                         
-                        tabela = soup.find('table', {'id': 'ConteudoPagina_gdvRepasse'})
-                        
-                        # Verifica se a tabela foi encontrada
-                        if tabela:
-                            dados_tabela = []
-                            linhas = tabela.find_all('tr')
-                            for linha in linhas:
-                                colunas = linha.find_all(['th', 'td'])
-                                colunas_texto = [coluna.get_text(strip=True) for coluna in colunas]
-                                dados_tabela.append(colunas_texto)
-
-                            # Converte os dados da tabela em um DataFrame do Pandas
-                            df = pd.DataFrame(dados_tabela[1:], columns=dados_tabela[0])
-                            df = df.assign(Municipio=option_text_municipio)
-                            df["ano"] = ano
-                            # Salva o DataFrame em um arquivo CSV
-                            df.to_csv(f"{ano}_{option_text_municipio}.csv", index=False)
+                        # Espera a tabela e extrai os dados, se disponível
+                        if esperar_tabela():
+                            df = extrair_dados_tabela()
+                            if df is not None:
+                                salvar_para_csv(df, ano, opcao_municipio)
+                            else:
+                                print(f"Tabela não encontrada para {ano} - {opcao_municipio}")
                         else:
-                            print(f"Tabela não encontrada para {ano} - {option_text_municipio}")
-                            
-                    except TimeoutException:
-                        print(f"Timeout: Tabela não encontrada para {ano} - {option_text_municipio}")
+                            print(f"Timeout: Tabela não encontrada para {ano} - {opcao_municipio}")
+                    
+                    except StaleElementReferenceException:
+                        continue
 
-                except StaleElementReferenceException:
-                    # Continua no próximo município em caso de erro StaleElementReferenceException
-                    continue
+def formatar_csv(dataframes, diretorio):
+    """Formata e unifica todos os arquivos CSV."""
+    for arquivo in os.listdir(diretorio):
+        if arquivo.endswith('.csv'):
+            caminho_arquivo = os.path.join(diretorio, arquivo)
+            df = pd.read_csv(caminho_arquivo)
+            dataframes.append(df)
 
-# Fecha o navegador
-driver.quit()
+    # Apaga todos os arquivos CSV do diretório
+    deletar_todos_csv(diretorio)
 
-# Lista para armazenar os DataFrames
-dataframes = []
+    # Unifica todos os DataFrames em um só
+    df_unido = pd.concat(dataframes, ignore_index=True)
 
-# Ler todos os arquivos CSV da pasta e adicionar à lista
-print('lendo')
-for arquivo in os.listdir(diretorio):
-    if arquivo.endswith('.csv'):
-        caminho_arquivo = os.path.join(diretorio, arquivo)
-        df = pd.read_csv(caminho_arquivo)
-        dataframes.append(df)
+    # Salva o DataFrame unificado em um novo arquivo CSV
+    caminho_saida = os.path.join(diretorio, 'dados.csv')
+    df_unido.to_csv(caminho_saida, index=False)
 
-# Apagar todos os arquivos CSV da pasta
-print('apagando')
-for arquivo in os.listdir(diretorio):
-    if arquivo.endswith('.csv'):
-        os.remove(os.path.join(diretorio, arquivo))
+if __name__ == "__main__":
+    start_time = time.time()
+    
+    # Diretório com os arquivos CSV
+    diretorio = './'
+    
+    # Apaga todos os arquivos CSV do diretório
+    deletar_todos_csv(diretorio)
 
-# Unir todos os DataFrames em um só
-print('Unir todos os DataFrames')
-df_unido = pd.concat(dataframes, ignore_index=True)
+    # Inicializa o driver do Chrome
+    driver = webdriver.Chrome()
 
-# Salvar o DataFrame unido em um novo arquivo CSV
-print('Salvar o DataFrame unido em um novo arquivo CSV')
-caminho_saida = os.path.join(diretorio, 'dados.csv')
-df_unido.to_csv(caminho_saida, index=False)
+    # URL da página que será acessada
+    url = "https://www.fazenda.sp.gov.br/RepasseConsulta/Consulta/repasse.aspx"
+    driver.get(url)
 
-print('Processo concluído. Todos os CSVs foram unidos e salvos como dados.csv.')
+    # Espera até que o seletor de ano esteja disponível
+    wait = WebDriverWait(driver, 10)
+    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#ConteudoPagina_ddlAno")))
 
-end_time = time.time()  
-elapsed_time = end_time - start_time
-print(f"Tempo total de execução: {elapsed_time:.2f} segundos")
+    # Seleciona o dropdown de ano
+    seletor_ano = Select(driver.find_element(By.CSS_SELECTOR, "#ConteudoPagina_ddlAno"))
+
+    # Obtém todas as opções de ano disponíveis
+    opcoes_ano = [option.text for option in seletor_ano.options]
+
+    # Lê os dados dos municípios
+    ler_dados()
+
+    # Fecha o navegador
+    driver.quit()
+
+    # Lista para armazenar os DataFrames
+    dataframes = []
+
+    # Lê todos os arquivos CSV da pasta e adiciona à lista
+    formatar_csv(dataframes, diretorio)
+
+    # Calcula o tempo total de execução
+    end_time = time.time()  
+    elapsed_time = end_time - start_time
+    print(f"Tempo total de execução: {elapsed_time:.2f} segundos")
